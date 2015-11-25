@@ -1,7 +1,6 @@
 var includeAll = require('include-all');
 var amqp = require('amqp');
 var _ = require('lodash');
-
 var workers = includeAll({
 	'dirname': __dirname + '/../../api/workers',
 	'filter': /(.+)(\.js|\.coffee|\.ts)$/,
@@ -17,9 +16,8 @@ module.exports = function(sails){
 			sails.queues.connections[c] = amqp.createConnection(sails.config.connections[c]);
 
 			for(var w in workers){
-				console.log(w);
 				if(workers[w].connection === c){
-					setQueue(c, w, sails, sails.queues.connections[c]);
+					setQueue(w, sails, sails.config.connections[c], sails.queues.connections[c]);
 				}
 			}
 
@@ -28,20 +26,29 @@ module.exports = function(sails){
 };
 
 
-function setQueue(queue, publish, sails, conn){
-	var worker = workers[publish];
-	var config = sails.config.connections[queue];
+function setQueue(queue, sails, config, conn){
+	var worker = workers[queue];
+	worker.respawn = worker.respawn !== undefined ? !!(worker.respawn) : true;
 	conn.on('ready', function(){
-		sails.queues.publish[publish] = { 'send': function (m, o){ return conn.publish(queue, (m || {}), (o || {})); }};
-		if(sails.config.globals.workers) global[publish] = sails.queues.publish[publish];
+		sails.queues.publish[queue] = { 'send': function (m, o){ return conn.publish(queue, (m || {}), (o || {})); }};
+		if(sails.config.globals.workers) global[queue] = sails.queues.publish[queue];
 
-		_.times(worker.workers, function(){
+		function setWorker(){
 			conn.queue(queue, config.options, function (q) {
 				// Catch all messages
 				q.bind(worker.bind);
 				// Receive messages
-				return q.subscribe(worker.config, worker.directive);
+				return q.subscribe(worker.config, function (message, headers, deliveryInfo, ack){
+					try{ worker.directive(message, headers, deliveryInfo, ack); }
+					catch(error){
+						console.log("Worker:", queue, "Error:", error);
+						if(worker.respawn) setWorker();
+					}
+				});
 			});
-		});
+		}
+
+		_.times(worker.workers, setWorker);
+
 	});
 };
