@@ -1,13 +1,17 @@
+var fs = require('fs');
 var includeAll = require('include-all');
 var amqp = require('amqp');
 var _ = require('lodash');
-var workers = includeAll({
-	'dirname': __dirname + '/../../api/workers',
-	'filter': /(.+)(\.js|\.coffee|\.ts)$/,
-});
 
 module.exports = function(sails){
-	if(!sails) return;
+	if(!sails){ return; }
+	try{
+		var workers = includeAll({
+			'dirname': process.cwd() + '/api/workers',
+			'filter': /(.+)(\.js|\.coffee|\.ts)$/,
+		});
+	}catch(e){ return; }
+
 	sails.queues = { 'connections':{}, 'workers':{}, 'publish':{} };
 
 	for(var c in sails.config.connections){
